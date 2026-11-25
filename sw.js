@@ -1,5 +1,5 @@
 /* Service worker — caché del cascarón de la app (PWA). */
-var CACHE = "soporte-errores-v6";
+var CACHE = "soporte-errores-v7";
 var SHELL = [
   "./",
   "./index.html",
@@ -60,6 +60,20 @@ self.addEventListener("fetch", function (event) {
         }
         return undefined;
       });
+    })
+  );
+});
+
+
+self.addEventListener("notificationclick", function (event) {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clientList) {
+      for (var i = 0; i < clientList.length; i++) {
+        var client = clientList[i];
+        if (client && "focus" in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow("./");
     })
   );
 });

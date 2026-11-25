@@ -35,8 +35,6 @@
     "Problema FNF Test Song Chart Editor GCD": "FNF Test Song Chart Editor GCD"
   };
 
-  var ADMIN_EMAIL = "deibyrt107cali@gmail.com";
-  var ADMIN_NAME = "GamerCB";
   var NAME_KEY = "soporte-errores-nombre";
   var PAGE_KEY = "soporte-errores-pagina";
   var NEWS_SEEN_KEY = "soporte-errores-last-news-seen";
@@ -155,14 +153,57 @@
   var messagesCache = [];
   var newsCache = [];
   var currentUser = null;
+  var currentAdmin = null;
+  var repliesCache = [];
+  var seenReplyIds = {};
+  var openReplyFor = null;
   var deferredPrompt = null;
   var toastTimer = null;
   var clientId = "c-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
   var presenceChannel = null;
 
+  function adminEmail() {
+    return currentUser && currentUser.email ? String(currentUser.email).toLowerCase() : "";
+  }
+
   function isAdminSession() {
-    var email = currentUser && currentUser.email ? String(currentUser.email).toLowerCase() : "";
-    return email === ADMIN_EMAIL;
+    return !!currentAdmin;
+  }
+
+  function isSuperAdmin() {
+    return !!(currentAdmin && currentAdmin.role === "super");
+  }
+
+  function adminDisplayName() {
+    return (currentAdmin && currentAdmin.display_name) ? currentAdmin.display_name : "";
+  }
+
+  function canAdminPage(page) {
+    if (!currentAdmin) return false;
+    if (currentAdmin.role === "super") return true;
+    return (currentAdmin.allowed_pages || []).indexOf(page) !== -1;
+  }
+
+  function canDeleteReply(row) {
+    if (!currentAdmin || !row) return false;
+    if (isSuperAdmin()) return true;
+    return String(row.author_email || "").toLowerCase() === adminEmail();
+  }
+
+  async function loadAdminProfile() {
+    currentAdmin = null;
+    var email = adminEmail();
+    if (!email || !client) return;
+    try {
+      var res = await client
+        .from("admins")
+        .select("email, display_name, role, allowed_pages")
+        .eq("email", email)
+        .maybeSingle();
+      if (res.data) currentAdmin = res.data;
+    } catch (e) {
+      currentAdmin = null;
+    }
   }
 
   nameInput.value = localStorage.getItem(NAME_KEY) || "";
@@ -523,11 +564,46 @@
     return typeof Notification !== "undefined" && Notification.permission === "granted";
   }
 
-  function sendNotification(title, body) {
+  function sendNotification(title, body, tag) {
     if (!canNotify()) return;
+    var opts = { body: body || "", icon: notifyIcon(), badge: notifyIcon() };
+    if (tag) opts.tag = tag;
+    function fallback() {
+      try { new Notification(title, opts); } catch (e) {}
+    }
     try {
-      new Notification(title, { body: body || "", icon: notifyIcon() });
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+        navigator.serviceWorker.getRegistration().then(function (reg) {
+          if (reg && typeof reg.showNotification === "function") {
+            return reg.showNotification(title, opts);
+          }
+          fallback();
+        }).catch(fallback);
+        return;
+      }
     } catch (e) {}
+    fallback();
+  }
+
+  function isOwnReport(row) {
+    if (!row) return false;
+    if (currentAdmin && row.is_admin && row.name === adminDisplayName()) return true;
+    return false;
+  }
+
+  function maybeNotifyNewReport(row) {
+    if (!canNotify() || !currentAdmin || !row) return;
+    if (isOwnReport(row)) return;
+    if (row.is_admin) return;
+    var page = messagePage(row);
+    if (!canAdminPage(page)) return;
+    var who = row.name || "Alguien";
+    showToast("Nuevo reporte en " + page + ": " + who);
+    sendNotification(
+      "Nuevo reporte",
+      who + " · " + page + (row.category ? " · " + row.category : ""),
+      "reporte-" + row.id
+    );
   }
 
   function updateNotifyButton() {
@@ -603,18 +679,18 @@
       var tag = accountEl.querySelector(".admin-tag");
       if (tag) tag.hidden = true;
     } else if (admin) {
-      document.getElementById("account-name").textContent = ADMIN_NAME;
+      document.getElementById("account-name").textContent = adminDisplayName();
       var tag2 = accountEl.querySelector(".admin-tag");
       if (tag2) tag2.hidden = false;
     }
     if (admin) {
-      nameInput.value = ADMIN_NAME;
+      nameInput.value = adminDisplayName();
       nameInput.readOnly = true;
     } else {
-      nameInput.readOnly = false;
-      if (nameInput.value === ADMIN_NAME) {
+      if (nameInput.readOnly) {
         nameInput.value = localStorage.getItem(NAME_KEY) || "";
       }
+      nameInput.readOnly = false;
     }
     if (activeTab === "errors") renderFeed();
     else renderNews();
@@ -650,6 +726,7 @@
     if (res.error) throw res.error;
     currentUser = res.data && res.data.user ? res.data.user : null;
     closeAuth();
+    await loadAdminProfile();
     applyAccountUi();
   }
 
@@ -662,6 +739,7 @@
   btnLogout.addEventListener("click", function () {
     client.auth.signOut().finally(function () {
       currentUser = null;
+      currentAdmin = null;
       applyAccountUi();
     });
   });
@@ -714,15 +792,16 @@
     var solvedBtn = document.createElement("button");
     solvedBtn.type = "button";
     var solved = !!row.solved;
-    solvedBtn.className = "solved-btn" + (solved ? " is-solved" : "") + (isAdminSession() ? " can-toggle" : "");
+    var canMod = canAdminPage(messagePage(row));
+    solvedBtn.className = "solved-btn" + (solved ? " is-solved" : "") + (canMod ? " can-toggle" : "");
     solvedBtn.textContent = solved ? "✓" : "✕";
     solvedBtn.title = solved ? "Solucionado" : "Pendiente";
     solvedBtn.setAttribute("aria-label", solved ? "Solucionado" : "Pendiente");
-    if (isAdminSession()) {
+    if (canMod) {
       solvedBtn.addEventListener("click", function () { toggleSolved(row); });
     }
     foot.appendChild(solvedBtn);
-    if (isAdminSession()) {
+    if (canMod) {
       var delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.className = "btn ghost compact btn-del";
@@ -732,6 +811,13 @@
       foot.appendChild(delBtn);
     }
     article.appendChild(foot);
+
+    var thread = document.createElement("div");
+    thread.className = "reply-thread";
+    var replyList = repliesFor(row.id);
+    replyList.forEach(function (r) { thread.appendChild(renderReply(r)); });
+    if (canMod) thread.appendChild(renderReplyComposer(row));
+    if (replyList.length || canMod) article.appendChild(thread);
     return article;
   }
 
@@ -745,11 +831,11 @@
   }
 
   async function deleteMessage(row) {
-    if (!isAdminSession() || !row || !row.id) return;
+    if (!row || !row.id || !canAdminPage(messagePage(row))) return;
     if (!window.confirm("¿Borrar este reporte? Se eliminará para todos.")) return;
     var res = await client.from("messages").delete().eq("id", row.id);
     if (res.error) {
-      showToast("No se pudo borrar el reporte. ¿Ejecutaste supabase-update-2.sql?");
+      showToast("No se pudo borrar el reporte. ¿Ejecutaste supabase-update-4.sql?");
       return;
     }
     var paths = [];
@@ -757,22 +843,305 @@
       var path = att.path || storagePathFromPublicUrl(att.url);
       if (path && path.indexOf("noticias/") !== 0) paths.push(path);
     });
+    repliesFor(row.id).forEach(function (r) {
+      parseAttachments(r.attachments).forEach(function (att) {
+        var path = att.path || storagePathFromPublicUrl(att.url);
+        if (path) paths.push(path);
+      });
+    });
     if (paths.length) {
       try { await client.storage.from(BUCKET).remove(paths); } catch (e) {}
     }
     await deleteReactionsFor("message", row.id);
+    var replyRows = repliesFor(row.id);
+    for (var ri = 0; ri < replyRows.length; ri++) {
+      await deleteReactionsFor("reply", replyRows[ri].id);
+    }
+    repliesCache = repliesCache.filter(function (r) { return r.message_id !== row.id; });
     removeMessageLocal(row.id);
   }
 
   async function toggleSolved(row) {
-    if (!isAdminSession()) return;
+    if (!canAdminPage(messagePage(row))) return;
     var next = !row.solved;
     var res = await client.rpc("set_message_solved", { p_id: row.id, p_solved: next });
     if (res.error) {
-      showToast("No se pudo actualizar el estado. ¿Ejecutaste supabase-update.sql?");
+      showToast("No se pudo actualizar el estado. ¿Ejecutaste supabase-update-4.sql?");
       return;
     }
     upsertMessage(res.data || Object.assign({}, row, { solved: next }), { silent: false, replace: true });
+  }
+
+  function repliesFor(messageId) {
+    return repliesCache.filter(function (r) { return r.message_id === messageId; }).sort(function (a, b) {
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+  }
+
+  function refreshMessageById(id) {
+    var row = findMessage(id);
+    if (!row || activeTab !== "errors") return;
+    if (messagePage(row) !== activePage) return;
+    var el = feed.querySelector('[data-id="' + id + '"]');
+    if (el) el.replaceWith(renderMessage(row));
+  }
+
+  function upsertReply(row, opts) {
+    if (!row || !row.id) return;
+    opts = opts || {};
+    var existing = null;
+    for (var i = 0; i < repliesCache.length; i++) {
+      if (repliesCache[i].id === row.id) { existing = repliesCache[i]; break; }
+    }
+    if (existing) {
+      Object.keys(row).forEach(function (k) { existing[k] = row[k]; });
+    } else {
+      seenReplyIds[row.id] = true;
+      repliesCache.push(row);
+    }
+    if (opts.silent) return;
+    refreshMessageById(row.message_id);
+  }
+
+  function removeReplyLocal(id, messageId) {
+    var mid = messageId;
+    repliesCache = repliesCache.filter(function (r) {
+      if (r.id === id) {
+        if (!mid) mid = r.message_id;
+        return false;
+      }
+      return true;
+    });
+    delete seenReplyIds[id];
+    if (mid) refreshMessageById(mid);
+  }
+
+  function renderReply(row) {
+    var el = document.createElement("article");
+    el.className = "reply";
+    el.dataset.replyId = row.id;
+
+    var head = document.createElement("div");
+    head.className = "msg-head";
+    var who = document.createElement("p");
+    who.className = "who";
+    var whoName = document.createElement("span");
+    whoName.textContent = row.name || "Admin";
+    who.appendChild(whoName);
+    if (row.is_admin) {
+      var tag = document.createElement("span");
+      tag.className = "admin-tag";
+      tag.textContent = "admin";
+      who.appendChild(tag);
+    }
+    head.appendChild(who);
+    var when = document.createElement("time");
+    when.className = "when";
+    when.dateTime = row.created_at || "";
+    when.textContent = formatWhen(row.created_at);
+    head.appendChild(when);
+    el.appendChild(head);
+
+    var body = document.createElement("p");
+    body.className = "body-text";
+    body.textContent = row.body || "";
+    el.appendChild(body);
+
+    var atts = parseAttachments(row.attachments);
+    if (atts.length) el.appendChild(renderMediaGrid(atts));
+    el.appendChild(renderReactionsBar("reply", row.id));
+
+    if (canDeleteReply(row)) {
+      var foot = document.createElement("div");
+      foot.className = "msg-foot";
+      var delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "btn ghost compact btn-del";
+      delBtn.textContent = "Borrar";
+      delBtn.setAttribute("aria-label", "Borrar respuesta");
+      delBtn.addEventListener("click", function () { deleteReply(row); });
+      foot.appendChild(delBtn);
+      el.appendChild(foot);
+    }
+    return el;
+  }
+
+  function renderReplyComposer(parentRow) {
+    var wrap = document.createElement("div");
+    wrap.className = "reply-composer";
+    var open = openReplyFor === parentRow.id;
+
+    var toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "btn ghost compact btn-reply";
+    toggle.textContent = open ? "Cancelar" : "Responder";
+    toggle.addEventListener("click", function () {
+      openReplyFor = open ? null : parentRow.id;
+      refreshMessageById(parentRow.id);
+      if (!open) {
+        setTimeout(function () {
+          var ta = feed.querySelector('.msg[data-id="' + parentRow.id + '"] .reply-form textarea');
+          if (ta) ta.focus();
+        }, 0);
+      }
+    });
+    wrap.appendChild(toggle);
+    if (!open) return wrap;
+
+    var formEl = document.createElement("form");
+    formEl.className = "reply-form";
+    var ta = document.createElement("textarea");
+    ta.rows = 1;
+    ta.placeholder = "Escribe una respuesta…";
+    ta.maxLength = MAX_DESC;
+    ta.setAttribute("aria-label", "Respuesta");
+    ta.addEventListener("input", function () {
+      ta.style.height = "auto";
+      ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+    });
+    formEl.appendChild(ta);
+
+    var preview = document.createElement("div");
+    preview.className = "previews reply-previews";
+    preview.hidden = true;
+    formEl.appendChild(preview);
+
+    var pending = [];
+    function renderPrev() {
+      preview.textContent = "";
+      preview.hidden = !pending.length;
+      pending.forEach(function (f, idx) {
+        var item = document.createElement("span");
+        item.className = "reply-file-chip";
+        item.textContent = f.name || "archivo";
+        var rm = document.createElement("button");
+        rm.type = "button";
+        rm.setAttribute("aria-label", "Quitar adjunto");
+        rm.textContent = "×";
+        rm.addEventListener("click", function () {
+          pending.splice(idx, 1);
+          renderPrev();
+        });
+        item.appendChild(rm);
+        preview.appendChild(item);
+      });
+    }
+
+    var actions = document.createElement("div");
+    actions.className = "reply-actions";
+    var file = document.createElement("input");
+    file.type = "file";
+    file.accept = "image/*,video/*";
+    file.multiple = true;
+    file.hidden = true;
+    file.addEventListener("change", function () {
+      var files = Array.prototype.slice.call(file.files || []);
+      file.value = "";
+      files.forEach(function (f) {
+        if (!isAllowedFile(f)) return;
+        if (f.size > MAX_FILE) { showToast("El archivo supera 100 MB."); return; }
+        if (pending.length >= MAX_FILES) { showToast("Máximo " + MAX_FILES + " archivos."); return; }
+        pending.push(f);
+      });
+      renderPrev();
+    });
+    var attachBtn = document.createElement("button");
+    attachBtn.type = "button";
+    attachBtn.className = "btn ghost compact";
+    attachBtn.textContent = "Adjuntar";
+    attachBtn.addEventListener("click", function () { file.click(); });
+    var sendBtn = document.createElement("button");
+    sendBtn.type = "submit";
+    sendBtn.className = "btn primary compact";
+    sendBtn.textContent = "Enviar";
+    actions.appendChild(file);
+    actions.appendChild(attachBtn);
+    actions.appendChild(sendBtn);
+    formEl.appendChild(actions);
+
+    var errEl = document.createElement("p");
+    errEl.className = "form-error";
+    errEl.hidden = true;
+    formEl.appendChild(errEl);
+
+    formEl.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var body = ta.value.trim();
+      if (!body) {
+        errEl.hidden = false;
+        errEl.textContent = "Escribe una respuesta.";
+        ta.focus();
+        return;
+      }
+      sendReply(parentRow, body, pending, sendBtn, errEl).then(function (ok) {
+        if (!ok) return;
+        openReplyFor = null;
+        refreshMessageById(parentRow.id);
+      });
+    });
+    wrap.appendChild(formEl);
+    return wrap;
+  }
+
+  async function sendReply(parentRow, body, files, sendBtn, errEl) {
+    if (sendBtn) sendBtn.disabled = true;
+    try {
+      var attachments = [];
+      for (var i = 0; i < (files || []).length; i++) {
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = "Subiendo " + (i + 1) + " de " + files.length + "…";
+        }
+        attachments.push(await uploadOne(files[i], "respuestas"));
+      }
+      var ins = await client.from("replies").insert({
+        message_id: parentRow.id,
+        body: body,
+        attachments: attachments
+      }).select().single();
+      if (ins.error) throw new Error(ins.error.message || "No se pudo enviar la respuesta.");
+      if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+      upsertReply(ins.data, {});
+      return true;
+    } catch (ex) {
+      var msg = (ex && ex.message) || "No se pudo enviar la respuesta. ¿Ejecutaste supabase-update-4.sql?";
+      if (errEl) { errEl.hidden = false; errEl.textContent = msg; }
+      else showToast(msg);
+      return false;
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  }
+
+  async function deleteReply(row) {
+    if (!canDeleteReply(row)) return;
+    if (!window.confirm("¿Borrar esta respuesta?")) return;
+    var res = await client.from("replies").delete().eq("id", row.id);
+    if (res.error) {
+      showToast("No se pudo borrar la respuesta.");
+      return;
+    }
+    var paths = [];
+    parseAttachments(row.attachments).forEach(function (att) {
+      var path = att.path || storagePathFromPublicUrl(att.url);
+      if (path) paths.push(path);
+    });
+    if (paths.length) {
+      try { await client.storage.from(BUCKET).remove(paths); } catch (e) {}
+    }
+    await deleteReactionsFor("reply", row.id);
+    removeReplyLocal(row.id, row.message_id);
+  }
+
+  async function loadReplies() {
+    var res = await client
+      .from("replies")
+      .select("id, created_at, message_id, author_email, name, body, attachments, is_admin")
+      .order("created_at", { ascending: true })
+      .limit(1000);
+    if (res.error) throw res.error;
+    (res.data || []).forEach(function (row) { upsertReply(row, { silent: true }); });
+    if (activeTab === "errors") renderFeed();
   }
 
   function renderFeed() {
@@ -820,6 +1189,7 @@
       return new Date(a.created_at) - new Date(b.created_at);
     });
     if (opts.silent) return;
+    if (!opts.forceScroll) maybeNotifyNewReport(row);
     var rowPage = messagePage(row);
     if (opts.forceScroll && rowPage !== activePage) {
       selectPage(rowPage);
@@ -923,7 +1293,7 @@
     if (opts.silent) return;
     if (opts.notify) {
       showToast("Nueva noticia: " + (row.title || "Sin título"));
-      sendNotification("Soporte de errores", row.title || "Hay una noticia nueva");
+      sendNotification("Soporte de errores", row.title || "Hay una noticia nueva", "noticia-" + row.id);
     }
     if (activeTab === "news") {
       markNewsSeen();
@@ -1037,7 +1407,7 @@
 
   nameInput.addEventListener("change", function () {
     if (isAdminSession()) {
-      nameInput.value = ADMIN_NAME;
+      nameInput.value = adminDisplayName();
       updateComposerMeta();
       return;
     }
@@ -1185,7 +1555,7 @@
     var page = pageSelect.value;
     var cat = catSelect.value;
     var desc = descInput.value.trim();
-    if (isAdminSession()) name = ADMIN_NAME;
+    if (isAdminSession()) name = adminDisplayName();
     if (!name) {
       highlightField(nameInput);
       if (isMobileChat()) openMetaSheet(nameInput);
@@ -1229,7 +1599,7 @@
     var err = validate();
     if (err) { showError(formError, err); return; }
 
-    var name = isAdminSession() ? ADMIN_NAME : nameInput.value.trim().slice(0, MAX_NAME);
+    var name = isAdminSession() ? adminDisplayName() : nameInput.value.trim().slice(0, MAX_NAME);
     var page = pageSelect.value;
     var category = catSelect.value;
     var description = descInput.value.trim().slice(0, MAX_DESC);
@@ -1608,13 +1978,13 @@
         ? "Hay 1 noticia nueva desde tu última visita."
         : "Hay " + unseen.length + " noticias nuevas desde tu última visita.";
       showToast(msg);
-      sendNotification("Soporte de errores", msg);
+      sendNotification("Soporte de errores", msg, "noticias-pendientes");
     }
   }
 
   function trackPresence() {
     if (!presenceChannel) return;
-    var n = isAdminSession() ? ADMIN_NAME : ((nameInput.value || "").trim() || "Visitante");
+    var n = isAdminSession() ? adminDisplayName() : ((nameInput.value || "").trim() || "Visitante");
     presenceChannel.track({ name: n.slice(0, MAX_NAME) }).catch(function () {});
   }
 
@@ -1630,7 +2000,20 @@
     });
     ch.on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, function (payload) {
       var old = payload && payload.old;
-      if (old && old.id) removeMessageLocal(old.id);
+      if (old && old.id) {
+        repliesCache = repliesCache.filter(function (r) { return r.message_id !== old.id; });
+        removeMessageLocal(old.id);
+      }
+    });
+    ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "replies" }, function (payload) {
+      if (payload && payload.new) upsertReply(payload.new, {});
+    });
+    ch.on("postgres_changes", { event: "UPDATE", schema: "public", table: "replies" }, function (payload) {
+      if (payload && payload.new) upsertReply(payload.new, {});
+    });
+    ch.on("postgres_changes", { event: "DELETE", schema: "public", table: "replies" }, function (payload) {
+      var old = payload && payload.old;
+      if (old && old.id) removeReplyLocal(old.id, old.message_id);
     });
     ch.on("postgres_changes", { event: "INSERT", schema: "public", table: "news" }, function (payload) {
       if (payload && payload.new) upsertNews(payload.new, { notify: true });
@@ -1710,12 +2093,14 @@
 
   client.auth.getSession().then(function (res) {
     currentUser = res.data && res.data.session ? res.data.session.user : null;
+    return loadAdminProfile();
+  }).then(function () {
     applyAccountUi();
   }).catch(function () {});
 
   client.auth.onAuthStateChange(function (_event, session) {
     currentUser = session && session.user ? session.user : null;
-    applyAccountUi();
+    loadAdminProfile().then(function () { applyAccountUi(); });
   });
 
   loadHistory()
@@ -1724,6 +2109,8 @@
       startRealtime();
       return loadNews().catch(function () {
         /* Las noticias requieren supabase-update.sql / update-3.sql */
+      }).then(function () {
+        return loadReplies().catch(function () {});
       }).then(function () {
         return loadReactions().catch(function () {});
       });
