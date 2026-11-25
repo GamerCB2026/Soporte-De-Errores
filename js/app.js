@@ -99,6 +99,11 @@
   var formError = document.getElementById("form-error");
   var fileHint = document.getElementById("file-hint");
   var sendBtn = document.getElementById("send");
+  var composerMeta = document.getElementById("composer-meta");
+  var metaSheet = document.getElementById("meta-sheet");
+  var metaBackdrop = document.getElementById("meta-backdrop");
+  var metaSave = document.getElementById("meta-save");
+  var emojiPicker = document.getElementById("emoji-picker");
   var connDot = document.getElementById("conn-dot");
   var connText = document.getElementById("conn-text");
   var presenceEl = document.getElementById("presence");
@@ -196,6 +201,7 @@
       chips[i].classList.toggle("active", chips[i].getAttribute("data-page") === page);
     }
     if (pageSelect.value !== page) pageSelect.value = page;
+    updateComposerMeta();
     renderFeed();
   }
 
@@ -344,6 +350,7 @@
     bar.setAttribute("data-react", type + ":" + id);
     var info = reactionsFor(type, id);
     EMOJIS.forEach(function (emoji) {
+      if (!info.counts[emoji]) return;
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "react-btn" + (info.mine[emoji] ? " mine" : "");
@@ -351,19 +358,28 @@
       var em = document.createElement("span");
       em.textContent = emoji;
       btn.appendChild(em);
-      if (info.counts[emoji] > 0) {
-        var n = document.createElement("span");
-        n.className = "react-count";
-        n.textContent = String(info.counts[emoji]);
-        btn.appendChild(n);
-      }
+      var n = document.createElement("span");
+      n.className = "react-count";
+      n.textContent = String(info.counts[emoji]);
+      btn.appendChild(n);
       btn.addEventListener("click", function () { toggleReaction(type, id, emoji); });
       bar.appendChild(btn);
     });
+    var add = document.createElement("button");
+    add.type = "button";
+    add.className = "react-add";
+    add.setAttribute("aria-label", "Añadir reacción");
+    add.textContent = "☺+";
+    add.addEventListener("click", function (e) {
+      e.stopPropagation();
+      openEmojiPicker(add, type, id);
+    });
+    bar.appendChild(add);
     return bar;
   }
 
   function refreshReactionBar(type, id) {
+    closeEmojiPicker();
     var nodes = document.querySelectorAll('[data-react="' + type + ":" + id + '"]');
     for (var i = 0; i < nodes.length; i++) {
       nodes[i].replaceWith(renderReactionsBar(type, id));
@@ -602,6 +618,7 @@
     if (activeTab === "errors") renderFeed();
     else renderNews();
     trackPresence();
+    updateComposerMeta();
   }
 
   function openAuth() {
@@ -1019,24 +1036,133 @@
   nameInput.addEventListener("change", function () {
     if (isAdminSession()) {
       nameInput.value = ADMIN_NAME;
+      updateComposerMeta();
       return;
     }
     var n = nameInput.value.trim().slice(0, MAX_NAME);
     nameInput.value = n;
     try { localStorage.setItem(NAME_KEY, n); } catch (e) {}
     trackPresence();
+    updateComposerMeta();
   });
+  nameInput.addEventListener("input", updateComposerMeta);
+  catSelect.addEventListener("change", updateComposerMeta);
+
+  function isMobileChat() {
+    return window.matchMedia && window.matchMedia("(max-width: 700px)").matches;
+  }
+
+  function clearFieldHighlights() {
+    nameInput.classList.remove("field-missing");
+    pageSelect.classList.remove("field-missing");
+    catSelect.classList.remove("field-missing");
+    var fields = form.querySelectorAll(".field-missing");
+    for (var i = 0; i < fields.length; i++) fields[i].classList.remove("field-missing");
+  }
+
+  function highlightField(el) {
+    el.classList.add("field-missing");
+    if (el.parentElement && el.parentElement.classList.contains("field")) {
+      el.parentElement.classList.add("field-missing");
+    }
+  }
+
+  function updateComposerMeta() {
+    if (!composerMeta) return;
+    var page = pageSelect.value || "Página";
+    var type = catSelect.value || "Tipo";
+    var name = (nameInput.value || "").trim() || "Nombre";
+    composerMeta.textContent = page + " · " + type + " · " + name;
+  }
+
+  function openMetaSheet(focusEl) {
+    if (!isMobileChat()) {
+      if (focusEl && focusEl.focus) focusEl.focus();
+      return;
+    }
+    appEl.classList.add("sheet-open");
+    if (metaBackdrop) metaBackdrop.hidden = false;
+    if (focusEl && focusEl.focus) {
+      setTimeout(function () { focusEl.focus(); }, 50);
+    }
+  }
+
+  function closeMetaSheet() {
+    appEl.classList.remove("sheet-open");
+    if (metaBackdrop) metaBackdrop.hidden = true;
+    clearFieldHighlights();
+    updateComposerMeta();
+    var n = nameInput.value.trim().slice(0, MAX_NAME);
+    if (n && !isAdminSession()) {
+      try { localStorage.setItem(NAME_KEY, n); } catch (e) {}
+    }
+  }
+
+  function autosizeDesc() {
+    if (!descInput) return;
+    if (!isMobileChat()) {
+      descInput.style.height = "";
+      return;
+    }
+    descInput.style.height = "auto";
+    var max = 104;
+    var min = 40;
+    descInput.style.height = Math.min(max, Math.max(min, descInput.scrollHeight)) + "px";
+  }
+
+  function scrollFeedToEnd() {
+    if (activeTab === "errors") feed.scrollTop = feed.scrollHeight;
+  }
+
+  function syncVisualViewport() {
+    var vv = window.visualViewport;
+    if (!isMobileChat() || !vv) {
+      appEl.style.height = "";
+      appEl.style.transform = "";
+      appEl.classList.remove("kb-open");
+      return;
+    }
+    appEl.style.height = vv.height + "px";
+    appEl.style.transform = vv.offsetTop ? "translateY(" + vv.offsetTop + "px)" : "";
+    var kb = window.innerHeight - vv.height > 80;
+    var was = appEl.classList.contains("kb-open");
+    appEl.classList.toggle("kb-open", kb);
+    if (kb && !was) {
+      var near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160;
+      if (near) scrollFeedToEnd();
+    }
+  }
+
+  function setSending(on) {
+    sendBtn.disabled = on;
+    var lab = sendBtn.querySelector(".send-label");
+    if (lab) lab.textContent = on ? "Enviando…" : "Enviar";
+    sendBtn.setAttribute("aria-label", on ? "Enviando…" : "Enviar");
+  }
 
   function validate() {
+    clearFieldHighlights();
     var name = nameInput.value.trim();
     var page = pageSelect.value;
     var cat = catSelect.value;
     var desc = descInput.value.trim();
     if (isAdminSession()) name = ADMIN_NAME;
-    if (!name) return "Escribe tu nombre.";
+    if (!name) {
+      highlightField(nameInput);
+      if (isMobileChat()) openMetaSheet(nameInput);
+      return "Escribe tu nombre.";
+    }
     if (name.length > MAX_NAME) return "El nombre es demasiado largo.";
-    if (!page || PAGES.indexOf(page) === -1) return "Selecciona una página.";
-    if (!cat || CATEGORIES.indexOf(cat) === -1) return "Selecciona un tipo de error.";
+    if (!page || PAGES.indexOf(page) === -1) {
+      highlightField(pageSelect);
+      if (isMobileChat()) openMetaSheet(pageSelect);
+      return "Selecciona una página.";
+    }
+    if (!cat || CATEGORIES.indexOf(cat) === -1) {
+      highlightField(catSelect);
+      if (isMobileChat()) openMetaSheet(catSelect);
+      return "Selecciona un tipo de error.";
+    }
     if (!desc) return "Describe el error que tienes. Es obligatorio.";
     if (desc.length > MAX_DESC) return "La descripción es demasiado larga.";
     if (Date.now() - lastSentAt < RATE_MS) return "Espera unos segundos antes de enviar otro mensaje.";
@@ -1072,8 +1198,8 @@
       try { localStorage.setItem(NAME_KEY, name); } catch (err2) {}
     }
 
-    sendBtn.disabled = true;
-    sendBtn.textContent = "Enviando…";
+    setSending(true);
+    if (form) form.classList.add("uploading");
 
     try {
       var attachments = [];
@@ -1095,11 +1221,14 @@
       pendingFiles = [];
       renderPreviews();
       fileHint.textContent = "";
+      if (form) form.classList.remove("uploading");
+      autosizeDesc();
+      scrollFeedToEnd();
     } catch (ex) {
       showError(formError, ex && ex.message ? ("No se pudo enviar. " + ex.message) : "No se pudo enviar. Revisa la conexión o que hayas ejecutado supabase-update-2.sql.");
     } finally {
-      sendBtn.disabled = false;
-      sendBtn.textContent = "Enviar";
+      setSending(false);
+      if (form) form.classList.remove("uploading");
     }
   });
 
@@ -1279,7 +1408,116 @@
     }
   });
 
-  async function loadHistory() {
+  var pickerTarget = null;
+  function closeEmojiPicker() {
+    if (!emojiPicker) return;
+    emojiPicker.hidden = true;
+    pickerTarget = null;
+  }
+
+  function openEmojiPicker(anchor, type, id) {
+    if (!emojiPicker) return;
+    if (pickerTarget && pickerTarget.type === type && pickerTarget.id === id && !emojiPicker.hidden) {
+      closeEmojiPicker();
+      return;
+    }
+    pickerTarget = { type: type, id: id };
+    var info = reactionsFor(type, id);
+    emojiPicker.textContent = "";
+    EMOJIS.forEach(function (emoji) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = emoji;
+      if (info.mine[emoji]) btn.className = "mine";
+      btn.setAttribute("aria-label", emoji);
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        toggleReaction(type, id, emoji);
+        closeEmojiPicker();
+      });
+      emojiPicker.appendChild(btn);
+    });
+    emojiPicker.hidden = false;
+    var r = anchor.getBoundingClientRect();
+    var w = 236;
+    var left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left));
+    var top = r.top - 8;
+    emojiPicker.style.left = left + "px";
+    emojiPicker.style.top = "0px";
+    var ph = emojiPicker.offsetHeight || 96;
+    top = r.top - ph - 8;
+    if (top < 8) top = r.bottom + 8;
+    emojiPicker.style.top = top + "px";
+  }
+
+  if (composerMeta) composerMeta.addEventListener("click", function () { openMetaSheet(nameInput); });
+  if (metaSave) metaSave.addEventListener("click", closeMetaSheet);
+  if (metaBackdrop) metaBackdrop.addEventListener("click", closeMetaSheet);
+  if (metaSheet) {
+    metaSheet.addEventListener("click", function (e) {
+      if (e.target === metaSheet) closeMetaSheet();
+    });
+  }
+
+  form.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    if (e.target === descInput) return;
+    if (e.target === nameInput || e.target === pageSelect || e.target === catSelect) {
+      e.preventDefault();
+      if (isMobileChat()) closeMetaSheet();
+    }
+  });
+
+  descInput.addEventListener("input", autosizeDesc);
+
+  document.addEventListener("click", function (e) {
+    if (emojiPicker && !emojiPicker.hidden && !emojiPicker.contains(e.target) && !(e.target.closest && e.target.closest(".react-add"))) {
+      closeEmojiPicker();
+    }
+  });
+
+  var feedScrollY = 0;
+  function onFeedScroll() {
+    closeEmojiPicker();
+    if (!isMobileChat()) {
+      appEl.classList.remove("chrome-collapsed");
+      return;
+    }
+    var y = feed.scrollTop;
+    if (y > feedScrollY + 10 && y > 20) appEl.classList.add("chrome-collapsed");
+    else if (y < feedScrollY - 10) appEl.classList.remove("chrome-collapsed");
+    feedScrollY = y;
+  }
+  feed.addEventListener("scroll", onFeedScroll, { passive: true });
+  newsFeed.addEventListener("scroll", function () {
+    closeEmojiPicker();
+    if (!isMobileChat()) return;
+    var y = newsFeed.scrollTop;
+    if (y > 20) appEl.classList.add("chrome-collapsed");
+    else appEl.classList.remove("chrome-collapsed");
+  }, { passive: true });
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", syncVisualViewport);
+    window.visualViewport.addEventListener("scroll", syncVisualViewport);
+  }
+  window.addEventListener("resize", function () {
+    syncVisualViewport();
+    autosizeDesc();
+    if (!isMobileChat()) closeMetaSheet();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (emojiPicker && !emojiPicker.hidden) closeEmojiPicker();
+    else if (appEl.classList.contains("sheet-open")) closeMetaSheet();
+  });
+
+  updateComposerMeta();
+  autosizeDesc();
+  syncVisualViewport();
+
+    async function loadHistory() {
     var res = await client
       .from("messages")
       .select("id, created_at, name, page, category, description, attachments, solved, is_admin")
@@ -1357,9 +1595,14 @@
     ch.on("presence", { event: "sync" }, function () {
       var state = ch.presenceState() || {};
       var n = Object.keys(state).length;
-      if (n <= 0) presenceEl.textContent = "";
-      else if (n === 1) presenceEl.textContent = "· 1 persona en línea";
-      else presenceEl.textContent = "· " + n + " personas en línea";
+      if (n <= 0) {
+        presenceEl.textContent = "";
+        presenceEl.removeAttribute("title");
+      } else {
+        presenceEl.textContent = String(n);
+        presenceEl.title = n === 1 ? "1 persona en línea" : n + " personas en línea";
+        presenceEl.setAttribute("aria-label", presenceEl.title);
+      }
     });
 
     ch.subscribe(function (status) {
