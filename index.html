@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#141a22">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Soporte">
+  <title>Soporte de errores</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="setup" class="setup" hidden>
+    <div class="setup-card">
+      <div class="setup-mark" aria-hidden="true">
+        <svg width="36" height="36" viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="8" fill="#1c2740"/>
+          <path fill="#3d8bfd" d="M8 10.5A2.5 2.5 0 0 1 10.5 8h11A2.5 2.5 0 0 1 24 10.5V18a2.5 2.5 0 0 1-2.5 2.5H16l-4.5 3.5V20.5H10.5A2.5 2.5 0 0 1 8 18z"/>
+        </svg>
+      </div>
+      <h1>Falta configurar Supabase</h1>
+      <p>Esta página ya está lista, pero el chat en vivo necesita un proyecto gratis de Supabase para que mucha gente pueda escribir a la vez y los mensajes no se pierdan.</p>
+      <ol>
+        <li>Abre <strong>LEEME.txt</strong> (está en esta misma carpeta) y sigue los pasos.</li>
+        <li>Crea el proyecto en <strong>supabase.com</strong> y ejecuta <strong>supabase-setup.sql</strong> y luego <strong>supabase-update.sql</strong>.</li>
+        <li>Pega la URL y la clave <strong>anon public</strong> en <strong>js/config.js</strong>.</li>
+        <li>Guarda el archivo y vuelve a abrir <strong>index.html</strong>.</li>
+      </ol>
+      <p class="setup-note">No uses la clave <em>service_role</em>: es secreta y no debe ir en esta página.</p>
+    </div>
+  </div>
+
+  <div id="app" class="app" hidden>
+    <header class="top">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">
+          <img src="icons/icon-192.png" width="28" height="28" alt="">
+        </span>
+        <div>
+          <h1>Soporte de errores</h1>
+          <p class="tagline">Cuéntanos qué está pasando con las herramientas</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="status" role="status">
+          <span id="conn-dot" class="dot"></span>
+          <span id="conn-text">Conectando…</span>
+          <span id="presence" class="presence"></span>
+        </div>
+        <button type="button" id="btn-install" class="btn ghost compact" hidden>Instalar</button>
+        <button type="button" id="btn-notify" class="btn ghost compact" hidden>Activar notificaciones</button>
+        <button type="button" id="btn-login" class="btn ghost compact">Iniciar sesión</button>
+        <div id="account" class="account" hidden>
+          <span id="account-name">GamerCB</span>
+          <span class="admin-tag">admin</span>
+          <button type="button" id="btn-logout" class="btn ghost compact">Salir</button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="Secciones">
+      <button type="button" id="tab-errors" class="tab active">Errores</button>
+      <button type="button" id="tab-news" class="tab">
+        Noticias
+        <span id="news-badge" class="news-badge" hidden>0</span>
+      </button>
+    </nav>
+
+    <nav class="filters" id="filters" aria-label="Páginas web"></nav>
+
+    <main id="feed" class="feed" aria-live="polite"></main>
+    <main id="news-feed" class="feed news-feed" hidden></main>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <div class="row fields">
+        <label class="field name-field">
+          <span>Tu nombre</span>
+          <input id="name" type="text" maxlength="60" placeholder="Como quieras llamarte" required>
+        </label>
+        <label class="field page-field">
+          <span>Página</span>
+          <select id="page" required>
+            <option value="" disabled>Selecciona una página</option>
+          </select>
+        </label>
+        <label class="field cat-field">
+          <span>Tipo de error</span>
+          <select id="category" required>
+            <option value="" selected disabled>Selecciona un tipo de error</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span>Descripción del error</span>
+        <textarea id="description" rows="3" maxlength="4000" placeholder="Explica qué está pasando, qué intentaste y qué viste en pantalla. Es obligatorio." required></textarea>
+      </label>
+      <div id="previews" class="previews" hidden></div>
+      <p id="form-error" class="form-error" hidden></p>
+      <div class="actions">
+        <input id="files" type="file" accept="image/*,video/*" multiple hidden>
+        <button type="button" id="attach" class="btn ghost">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21.4 11.2 12 20.6a6 6 0 0 1-8.5-8.5l10.6-10.6a4 4 0 0 1 5.7 5.7L8.6 18.4a2 2 0 0 1-2.8-2.8l9.2-9.2"/>
+          </svg>
+          Adjuntar fotos o videos
+        </button>
+        <span id="file-hint" class="hint"></span>
+        <button type="submit" id="send" class="btn primary">Enviar</button>
+      </div>
+    </form>
+
+    <form id="news-composer" class="composer news-composer" autocomplete="off" hidden>
+      <p class="composer-title" id="news-composer-title">Nueva noticia</p>
+      <label class="field">
+        <span>Título</span>
+        <input id="news-title" type="text" maxlength="120" placeholder="Título de la noticia" required>
+      </label>
+      <label class="field">
+        <span>Texto</span>
+        <textarea id="news-body" rows="3" maxlength="8000" placeholder="Escribe la noticia." required></textarea>
+      </label>
+      <div id="news-preview" class="previews" hidden></div>
+      <p id="news-error" class="form-error" hidden></p>
+      <div class="actions">
+        <input id="news-file" type="file" accept="image/*,video/*" multiple hidden>
+        <button type="button" id="news-attach" class="btn ghost">Adjuntar fotos o videos</button>
+        <span id="news-file-hint" class="hint"></span>
+        <button type="button" id="news-cancel" class="btn ghost" hidden>Cancelar</button>
+        <button type="submit" id="news-send" class="btn primary">Publicar</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="auth-modal" class="modal" hidden>
+    <form id="auth-form" class="modal-card" autocomplete="on">
+      <h2>Iniciar sesión</h2>
+      <p class="modal-lead">Entra con tu correo y contraseña. Solo la cuenta de administración puede marcar errores como resueltos, borrar reportes y publicar noticias.</p>
+      <p class="auth-warn">No es posible registrarse. Solo pueden iniciar sesión los miembros de la página web.</p>
+      <label class="field">
+        <span>Correo</span>
+        <input id="auth-email" type="email" required placeholder="correo@ejemplo.com" autocomplete="username">
+      </label>
+      <label class="field">
+        <span>Contraseña</span>
+        <input id="auth-password" type="password" required minlength="6" placeholder="Contraseña" autocomplete="current-password">
+      </label>
+      <p id="auth-error" class="form-error" hidden></p>
+      <div class="actions modal-actions">
+        <button type="submit" id="auth-login" class="btn primary">Entrar</button>
+        <button type="button" id="auth-cancel" class="btn ghost">Cancelar</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="lightbox" class="lightbox" hidden>
+    <button type="button" id="lightbox-close" class="lightbox-close" aria-label="Cerrar">×</button>
+    <div id="lightbox-body" class="lightbox-body"></div>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status"></div>
+
+  <script src="js/config.js"></script>
+  <script src="vendor/supabase.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
