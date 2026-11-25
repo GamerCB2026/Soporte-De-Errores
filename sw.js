@@ -1,5 +1,5 @@
 /* Service worker — caché del cascarón de la app (PWA). */
-var CACHE = "soporte-errores-v5";
+var CACHE = "soporte-errores-v6";
 var SHELL = [
   "./",
   "./index.html",

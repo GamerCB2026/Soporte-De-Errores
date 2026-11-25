@@ -89,6 +89,8 @@
   var filtersEl = document.getElementById("filters");
   var form = document.getElementById("composer");
   var newsForm = document.getElementById("news-composer");
+  var newsToggle = document.getElementById("news-toggle");
+  var newsBackdrop = document.getElementById("news-backdrop");
   var nameInput = document.getElementById("name");
   var pageSelect = document.getElementById("page");
   var catSelect = document.getElementById("category");
@@ -581,11 +583,11 @@
     filtersEl.hidden = !errors;
     form.hidden = !errors;
     newsFeed.hidden = errors;
-    newsForm.hidden = errors || !isAdminSession();
     if (!errors) {
       markNewsSeen();
       renderNews();
     }
+    syncNewsComposerVisibility();
   }
 
   tabErrors.addEventListener("click", function () { setTab("errors"); });
@@ -614,11 +616,11 @@
         nameInput.value = localStorage.getItem(NAME_KEY) || "";
       }
     }
-    if (activeTab === "news") newsForm.hidden = !admin;
     if (activeTab === "errors") renderFeed();
     else renderNews();
     trackPresence();
     updateComposerMeta();
+    syncNewsComposerVisibility();
   }
 
   function openAuth() {
@@ -1098,6 +1100,43 @@
     }
   }
 
+  function openNewsSheet() {
+    if (!isAdminSession() || !newsForm) return;
+    newsForm.hidden = false;
+    if (isMobileChat()) {
+      appEl.classList.add("news-sheet-open");
+      if (newsBackdrop) newsBackdrop.hidden = false;
+      if (newsCancel) newsCancel.hidden = false;
+    }
+  }
+
+  function closeNewsSheet() {
+    appEl.classList.remove("news-sheet-open");
+    if (newsBackdrop) newsBackdrop.hidden = true;
+    if (!newsForm) return;
+    if (isMobileChat()) newsForm.hidden = true;
+    else newsForm.hidden = !(activeTab === "news" && isAdminSession());
+  }
+
+  function syncNewsComposerVisibility() {
+    var adminNews = activeTab === "news" && isAdminSession();
+    if (newsToggle) newsToggle.hidden = !adminNews;
+    if (!newsForm) return;
+    if (!adminNews) {
+      appEl.classList.remove("news-sheet-open");
+      if (newsBackdrop) newsBackdrop.hidden = true;
+      newsForm.hidden = true;
+      return;
+    }
+    if (isMobileChat()) {
+      if (!appEl.classList.contains("news-sheet-open")) newsForm.hidden = true;
+    } else {
+      appEl.classList.remove("news-sheet-open");
+      if (newsBackdrop) newsBackdrop.hidden = true;
+      newsForm.hidden = false;
+    }
+  }
+
   function autosizeDesc() {
     if (!descInput) return;
     if (!isMobileChat()) {
@@ -1318,6 +1357,7 @@
     if (newsCancel) newsCancel.hidden = true;
     renderNewsPreview();
     showError(newsError, "");
+    closeNewsSheet();
   }
 
   function startEditNews(row) {
@@ -1333,12 +1373,31 @@
     renderNewsPreview();
     showError(newsError, "");
     if (newsForm && newsForm.scrollIntoView) newsForm.scrollIntoView({ block: "nearest" });
+    openNewsSheet();
     newsTitle.focus();
   }
 
   newsAttach.addEventListener("click", function () { newsFileInput.click(); });
   newsFileInput.addEventListener("change", function () { addNewsFiles(newsFileInput.files || []); });
   if (newsCancel) newsCancel.addEventListener("click", function () { resetNewsForm(); });
+  if (newsToggle) {
+    newsToggle.addEventListener("click", function () {
+      editingNewsId = null;
+      existingNewsAtts = [];
+      newsPendingFiles = [];
+      newsTitle.value = "";
+      newsBody.value = "";
+      if (newsComposerTitle) newsComposerTitle.textContent = "Nueva noticia";
+      newsSend.textContent = "Publicar";
+      renderNewsPreview();
+      showError(newsError, "");
+      openNewsSheet();
+      if (newsTitle) newsTitle.focus();
+    });
+  }
+  if (newsBackdrop) {
+    newsBackdrop.addEventListener("click", function () { resetNewsForm(); });
+  }
 
   newsForm.addEventListener("submit", async function (e) {
     e.preventDefault();
@@ -1505,12 +1564,14 @@
     syncVisualViewport();
     autosizeDesc();
     if (!isMobileChat()) closeMetaSheet();
+    syncNewsComposerVisibility();
   });
 
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Escape") return;
     if (emojiPicker && !emojiPicker.hidden) closeEmojiPicker();
     else if (appEl.classList.contains("sheet-open")) closeMetaSheet();
+    else if (appEl.classList.contains("news-sheet-open")) resetNewsForm();
   });
 
   updateComposerMeta();

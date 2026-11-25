@@ -55,6 +55,8 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: Inter, "Segoe UI", system-ui, sans-serif;
@@ -747,7 +749,9 @@ select option { background: #1a222d; }
 .sheet-title,
 .sheet-save,
 .meta-backdrop,
-.send-icon {
+.send-icon,
+.news-toggle,
+.news-backdrop {
   display: none;
 }
 .meta-sheet, .sheet-inner { display: contents; }
@@ -814,16 +818,28 @@ select.field-missing {
 
 @media (max-width: 700px) {
   html, body {
+    width: 100%;
+    max-width: 100%;
     height: 100%;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: hidden;
   }
   .app {
     position: relative;
     border-inline: 0;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 100dvh;
-    max-width: none;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    box-sizing: border-box;
+  }
+  .top, .brand, .top-actions, .tabs, .filters, .feed, .news-feed,
+  .composer, .news-composer, .account {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .top {
@@ -858,10 +874,13 @@ select.field-missing {
     text-overflow: ellipsis;
   }
   .logo img { width: 24px; height: 24px; border-radius: 6px; }
+  .brand { flex: 1 1 auto; min-width: 0; }
   .top-actions {
     width: auto;
+    flex: 0 0 auto;
     flex-wrap: nowrap;
     gap: 4px;
+    max-width: none;
   }
   .status {
     width: auto;
@@ -917,46 +936,74 @@ select.field-missing {
     padding-right: calc(10px + env(safe-area-inset-right, 0px));
   }
 
-  /* Composer: WhatsApp-style bar */
-  .composer {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
+  /* Errors composer: WhatsApp-style bar (do not apply this grid to news) */
+  #composer {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "meta meta meta"
+      "previews previews previews"
+      "error error error"
+      "attach desc send";
+    column-gap: 6px;
+    row-gap: 4px;
+    align-items: end;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     padding: 6px 8px;
     padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
     padding-left: calc(8px + env(safe-area-inset-left, 0px));
     padding-right: calc(8px + env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
   }
-  .app.kb-open .composer,
+  .app.kb-open #composer,
   .app.kb-open .news-composer {
     padding-bottom: 6px;
   }
 
-  .meta-sheet { display: block; }
-  .sheet-inner { display: block; }
-  .meta-backdrop {
+  /* Bottom sheet: fixed, full width, out of the composer grid */
+  #meta-backdrop,
+  .news-backdrop {
     display: block;
-    position: absolute;
+    position: fixed;
     inset: 0;
+    width: 100%;
+    height: 100%;
     background: rgba(0, 0, 0, 0.55);
-    z-index: 28;
+    z-index: 34;
+    border: 0;
+    padding: 0;
+    margin: 0;
   }
-  .meta-backdrop[hidden] { display: none !important; }
-  .meta-sheet {
-    position: absolute;
+  #meta-backdrop[hidden],
+  .news-backdrop[hidden] { display: none !important; }
+
+  #meta-sheet {
+    display: block;
+    position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 29;
-    transform: translateY(110%);
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    z-index: 35;
+    transform: translateY(100%);
     transition: transform 0.22s ease;
     pointer-events: none;
+    box-sizing: border-box;
   }
-  .app.sheet-open .meta-sheet {
-    transform: none;
+  .app.sheet-open #meta-sheet {
+    transform: translateY(0);
     pointer-events: auto;
   }
-  .sheet-inner {
+  #meta-sheet .sheet-inner {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     background: var(--bg-2);
     border: 1px solid var(--border);
     border-bottom: 0;
@@ -964,7 +1011,7 @@ select.field-missing {
     padding: 8px 16px calc(14px + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
   }
-  .app.kb-open .sheet-inner {
+  .app.kb-open #meta-sheet .sheet-inner {
     padding-bottom: 12px;
   }
   .sheet-grab {
@@ -987,15 +1034,19 @@ select.field-missing {
     margin: 12px 0 0;
     margin-left: 0;
   }
-  .row.fields {
+  #meta-sheet .row.fields {
+    display: grid;
     grid-template-columns: 1fr;
     margin-bottom: 0;
   }
 
-  .composer-meta {
+  #composer-meta {
     display: flex;
     align-items: center;
+    grid-area: meta;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     margin: 0 0 4px;
     padding: 5px 10px;
     min-height: 28px;
@@ -1011,68 +1062,44 @@ select.field-missing {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    box-sizing: border-box;
   }
 
-  .desc-label { display: none; }
-  .desc-field {
+  #composer .desc-label { display: none; }
+  #composer .desc-field {
+    grid-area: desc;
     margin: 0;
-    flex: 1;
     min-width: 0;
   }
 
-  .previews {
+  #composer .previews {
+    grid-area: previews;
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     gap: 6px;
     margin: 0 0 6px;
     scrollbar-width: none;
+    max-width: 100%;
   }
-  .previews::-webkit-scrollbar { display: none; }
-  .preview-item {
+  #composer .previews::-webkit-scrollbar { display: none; }
+  #composer .preview-item {
     width: 52px;
     height: 52px;
     flex-shrink: 0;
   }
-  .preview-name { display: none; }
-  .form-error { margin: 0 0 4px; font-size: 0.8rem; }
+  #composer .preview-name { display: none; }
+  #composer .form-error { grid-area: error; margin: 0 0 4px; font-size: 0.8rem; }
 
-  .actions {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: flex-end;
-    gap: 6px;
-  }
-  .hint { display: none; }
-  .composer.uploading .hint {
+  #composer .actions { display: contents; }
+  #composer .hint { display: none; }
+  #composer.uploading .hint {
     display: block;
     grid-area: error;
     margin: 0 0 2px;
   }
 
-  /* Place textarea in the action row: attach | text | send */
-  .composer {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas:
-      "sheet sheet sheet"
-      "meta meta meta"
-      "previews previews previews"
-      "error error error"
-      "attach desc send";
-    column-gap: 6px;
-    row-gap: 4px;
-    align-items: end;
-  }
-  .meta-backdrop { grid-area: sheet; }
-  .meta-sheet { grid-area: sheet; }
-  .composer-meta { grid-area: meta; }
-  .previews { grid-area: previews; }
-  .form-error { grid-area: error; }
-  .actions {
-    display: contents;
-  }
-  #attach {
+  #composer #attach {
     grid-area: attach;
     width: 40px;
     height: 40px;
@@ -1081,9 +1108,9 @@ select.field-missing {
     border-radius: 50%;
     margin: 0 0 2px;
   }
-  .attach-label { display: none; }
-  .desc-field { grid-area: desc; }
-  #description, .desc-field textarea {
+  #composer .attach-label { display: none; }
+  #composer #description,
+  #composer .desc-field textarea {
     min-height: 40px;
     max-height: 104px;
     resize: none;
@@ -1091,8 +1118,11 @@ select.field-missing {
     padding: 9px 14px;
     line-height: 1.35;
     overflow-y: auto;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
-  #send, .composer .btn.primary {
+  #composer #send {
     grid-area: send;
     width: 40px;
     height: 40px;
@@ -1102,19 +1132,110 @@ select.field-missing {
     padding: 0;
     border-radius: 50%;
   }
-  .send-label { display: none; }
-  .send-icon { display: block; }
+  #composer .send-label { display: none; }
+  #composer .send-icon { display: block; }
 
-  .news-composer {
-    padding: 8px 10px;
-    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
-    padding-left: calc(10px + env(safe-area-inset-left, 0px));
-    padding-right: calc(10px + env(safe-area-inset-right, 0px));
+  /* News: compact toggle + full-width sheet, one-column form */
+  .news-toggle:not([hidden]) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 100%;
+    min-height: 44px;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg-2);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    cursor: pointer;
   }
-  .news-composer .actions { display: flex; flex-wrap: wrap; }
-  .news-composer .btn.primary { margin-left: 0; width: auto; height: auto; min-height: 40px; border-radius: 10px; padding: 8px 14px; }
+  .news-composer {
+    display: flex !important;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 8px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    min-width: 0;
+    max-height: min(85dvh, 100%);
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 35;
+    transform: translateY(100%);
+    transition: transform 0.22s ease;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .news-composer[hidden] { display: none !important; }
+  .app.news-sheet-open .news-composer {
+    transform: translateY(0);
+  }
+  .app.kb-open .news-composer {
+    padding-bottom: 10px;
+  }
+  .news-composer .composer-title {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+  .news-composer .field,
+  .news-composer label,
+  .news-composer input,
+  .news-composer textarea,
+  .news-composer .actions,
+  .news-composer .previews {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .news-composer .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .news-composer .btn.primary {
+    margin-left: 0;
+    width: auto;
+    height: auto;
+    min-height: 40px;
+    border-radius: 10px;
+    padding: 8px 14px;
+  }
+  .news-composer .attach-label { display: inline; }
   .news-composer .send-label { display: inline; }
+  .news-composer .send-icon { display: none; }
+  .news-composer textarea {
+    min-height: 88px;
+    resize: vertical;
+  }
+  .news-composer .previews {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
   .attach-grid { gap: 6px; }
+}
+
+@media (max-width: 480px) {
+  #account-name { display: none; }
+  .top h1 { font-size: 0.85rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
